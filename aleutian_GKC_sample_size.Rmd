@@ -1,0 +1,202 @@
+---
+title: "GKC Aleutian sample size"
+author: "Katie Palof, ADF&G"
+date: "June 2, 2016"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE, eval=TRUE, message=FALSE, error=FALSE, warning=FALSE}
+#####Load Packages ---------------------------------
+library(plyr)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(tidyr)
+library(reshape2)
+library(extrafont)
+library(ggthemes)
+library(knitr)
+library(pander)
+library(pwr)
+
+#####Load Data --------------------------------------
+dat <- read.csv("C:/Users/kjpalof/Documents/R projects/Aleutian_GKC_sample_size/data/AIGKC Erla N 2015 for Katie.csv")
+
+##### soak time calculations ------------------------------
+# creates a vector of time in and time out that are together in one column 
+dat %>%
+  mutate(time_in = paste(datein, timein, sep = " "), time_out = paste(dateout, timeout, sep = " ")) -> dat1
+# Changes these from being stored as characters to being stored in the date and time format
+#trial <- as.POSIXlt(strptime(dat1$time_in, format = "%m/%d/%Y %H:%M"))
+dat1$start_in <- as.POSIXlt(strptime(dat1$time_in, format = "%m/%d/%Y %H:%M"))
+dat1$end_out <- as.POSIXlt(strptime(dat1$time_out, format = "%m/%d/%Y %H:%M"))
+
+# difference in hours between the two times
+dat1$soak <- difftime(dat1$end_out, dat1$start_in, units = "hours")
+# end result is soak vector which is stores in the number of hours 
+# want to add soak back to dat
+dat$soak <- dat1$soak
+## note: Ben suggested to use lubridate in the future
+#####
+
+# remove string 19 due to no catch 
+strings_used <- c(1:18)
+dat %>%
+  filter(string %in% strings_used) -> dat
+
+##### reduce data ---------------------------------------
+#total crab
+dat %>%
+  group_by(string, pot, pot.size, soak) %>%
+  summarize(total_crab = sum(subsample.rate)) %>%
+  mutate(soaktime = as.numeric (soak))  -> GKC
+# Legal 1 and 2
+target <- c(1,2)
+dat %>%
+  filter(legal %in% target) %>%
+  group_by(string, pot, pot.size, soak) %>%
+  summarize(legal_crab = sum(subsample.rate)) %>%
+  mutate(soaktime = as.numeric (soak)) -> GKC_legal
+
+
+##### Standardize CPUE by soak time in hours ----------------------------------
+GKC %>%
+  mutate(std_CPUE = total_crab/ soaktime) -> GKC
+GKC_legal %>%
+  mutate(std_CPUE = legal_crab/ soaktime) -> GKC_legal
+
+```
+## CPUE by string
+Catch per unit effort (CPUE) was summarized by string, which includes 5 pots that were sampled in each string. CPUE is summarized in crab caught per hour of soak time.  For reference, crab per day and SD of crab per day is also reported. 
+CPUE by string, for total crab and for legal crab, shows the variability between the pots within a string. A representative sample of 18 strings is shown here.
+
+#### Table 1: CPUE by string of total crab
+```{r CPUE by string, echo=FALSE, eval=TRUE, message=FALSE, error=FALSE, warning=FALSE}
+##### CPUE calcs -------------------------------------------
+# use std_CPUE which standardizes to the hour of soak time
+#CPUE by string, standard error calculation assumes 5 pots per string
+### Total crab
+GKC %>% 
+  group_by(string) %>%
+  summarize(CPUEbar = round(mean(std_CPUE),4), Csd = round(sd(std_CPUE), 4)) %>%
+  mutate(Cse =  round(Csd/ sqrt(5),4), CV = round((100*(Csd/CPUEbar)), 2), crab_day = round(CPUEbar*24,4),      
+         crab_day_sd = round(Csd*24, 4), CV_base_rem = CV - min(CV)) -> string_CPUE
+#calculate SD, SE, and CV
+#CV is the % sd to the average.  
+
+```
+```{r pander, echo=FALSE, eval=TRUE, message=FALSE, error=FALSE, warning=FALSE}
+panderOptions("digits", 2)
+pander(string_CPUE)
+```
+Key: **CPUEbar** is the mean CPUE for each string, **Csd** and **Cse** represent the standard deviation and standard error by string, **crab_day** & **crab_day_sd** are the mean and sd transformed to crab per day.  **CV_base_rem** is the CV by string minus the minimum CV for all strings.  This removes the underlying base variance and better reflects the true variability between pots in a string.
+
+
+
+#### 
+
+####
+
+####
+
+####
+
+#### Table 2: CPUE by string of legal crab 
+```{r CPUE by string legal, echo=FALSE, eval=TRUE, message=FALSE, error=FALSE, warning=FALSE}
+### Legal Crab
+GKC_legal %>% 
+  group_by(string) %>%
+  summarize(CPUEbar = round(mean(std_CPUE),4), Csd = round(sd(std_CPUE), 4)) %>%
+  mutate(Cse =  round(Csd/ sqrt(5),4), CV = round((100*(Csd/CPUEbar)), 2), crab_day = round(CPUEbar*24,4),      
+         crab_day_sd = round(Csd*24, 4), CV_base_rem = CV - min(CV)) -> string_CPUE_legal
+```
+```{r pander2, echo=FALSE, eval=TRUE, message=FALSE, error=FALSE, warning=FALSE}
+panderOptions("digits", 2)
+pander(string_CPUE_legal)
+```
+Key: **CPUEbar** is the mean CPUE for each string, **Csd** and **Cse** represent the standard deviation and standard error by string, **crab_day** & **crab_day_sd** are the mean and sd transformed to crab per day.  **CV_base_rem** is the CV by string minus the minimum CV for all strings.  This removes the underlying base variance and better reflects the true variability between pots in a string.
+
+
+## CPUE by region
+For total crab per pot 
+```{r CPUE by region total, echo=FALSE, eval=TRUE, message=FALSE, error=FALSE, warning=FALSE}
+string_CPUE %>%
+  summarize(CPUE_region = mean(CPUEbar), sd_region = sd(CPUEbar)) %>%
+  mutate(Cse =  sd_region/ sqrt(18), CV = (100*(sd_region/CPUE_region)), crab_day = CPUE_region*24,
+         crab_day_sd = sd_region*24)
+```
+
+For legal crab per pot 
+```{r CPUE by region legal, echo=FALSE, eval=TRUE, message=FALSE, error=FALSE, warning=FALSE}
+string_CPUE_legal %>%
+  summarize(CPUE_region = mean(CPUEbar), sd_region = sd(CPUEbar)) %>%
+  mutate(Cse =  sd_region/ sqrt(18), CV = (100*(sd_region/CPUE_region)), crab_day = CPUE_region*24, 
+         crab_day_sd = sd_region*24)
+```
+
+## Power / Sample size
+Analysis were done to determine the effect size of the current sample size of 66 pots to detect a change in regional CPUE from year to year.  The effect size will determine how large of a change in CPUE the current sample size can detect from year to year. Additionally, the effect size and power of the current sample size of 5 pots per string was reviewed.  The effect size to detect a difference between strings was determined, and the possibility of adding more samples per string was examined.
+
+
+### regional sample size (number of strings)
+The power to determine a difference in regional CPUE from year to year. This analysis relies on the standard deviation of the mean (here CPUE) for the region. Initially other parameters (Power = 0.85 and sig.level = 0.05) were held constant to determine the effect size of the current sample size. 
+
+Effect size for a sample size of 66 strings (assuming 85% power and a significance level of 0.05)
+```{r effect sample 66,echo=FALSE, eval=TRUE, error=FALSE, warning=FALSE }
+pwr.t.test (n=66, sig.level= 0.05, power= 0.85, type =("two.sample"))
+```
+For total crab CPUE (assuming a regional SD for total crab of 0.0802), this effect size equates to an ability to detect a difference in CPUE that is larger than the below value in crabs per day.
+```{r effect total crab days,echo=FALSE, eval=TRUE, error=FALSE, warning=FALSE }
+0.5255064*0.0802*24
+```
+For legal crab CPUE(assuming a regional SD for LEGAL CPUE of 0.0390), this effect size equates to an ability to detect a difference in CPUE that is larger than the below value in crabs per day. 
+```{r effect legal crab days,echo=FALSE, eval=TRUE, error=FALSE, warning=FALSE }
+0.5255064*0.0390*24
+```
+
+**The power of the current sampling regime depends on what the desired effect size (or difference to detect between CPUEs) is.  The current sample size of 66 strings has the ability to detect a change of 0.49 LEGAL crab per day or greater with a power of 85% for a significance level of 0.05.**
+
+### pots per string sample size 
+Using the average standard deviation observed within strings, the effect size can be determined at 85% power to detect a significance level of 0.05. This is the power to detect a difference (effect size) in CPUE between strings.
+```{r effect size per string,echo=FALSE, eval=TRUE, error=FALSE, warning=FALSE }
+# this gives d but need standard deviation to get effect size
+pwr.t.test(n =5, sig.level = 0.05, power = 0.85, type = ("two.sample"))
+```
+
+For legal crab CPUE(assuming an average SD within pots of 0.0333), this effect size equates to an ability to detect a difference in CPUE that is larger than the below value in crabs per day between pots.   
+```{r effect legal pots per string,echo=FALSE, eval=TRUE, error=FALSE, warning=FALSE }
+#need to determine the standard deviation between the strings.
+# need to standard deviations here - since sample sizes are the same I think the average is appropriate since s is really just a weighted average
+s = sqrt(((5-1)*(0.0151^2)+(5-1)*(0.0689^2))/(5+5)) # uses smallest and largest, this maybe overly cautious
+s_bar = mean(string_CPUE_legal$Csd)
+2.167515*s_bar*24 # using average
+```
+This value is fairly large (considering CPUE of crab per day for LEGAL crab ranges from 0.94 t0 5.34), so additional power analyses were performed to determine the sample size necessary to get a smaller effect size - closer to 0.5 crab per day using the same power and significance level.
+```{r effect size per string2,echo=FALSE, eval=TRUE, error=FALSE, warning=FALSE }
+# s_bar is average standard deviation 
+d1 = (0.5/24)/s_bar
+pwr.t.test(d = d1, sig.level = 0.05, power = 0.85, type = ("two.sample"))
+```
+This produces a larger sample size than possible since there are only 35 pots per string. Variability within a string is to high to efficiently detect this small of a change in CPUE between strings.
+
+Assuming a sample size of 5 pots per string, and an effect size of 0.5 crab per day, the power to detect this difference between string is:
+```{r effect size per string3,echo=FALSE, eval=TRUE, error=FALSE, warning=FALSE }
+# s_bar is average standard deviation 
+d1 = (0.5/24)/s_bar
+pwr.t.test(n = 5, d = d1, sig.level = 0.05, type = ("two.sample"))
+```
+The current sample size of 5 pots per string has fairly low power (~14%) to detect a difference of 0.5 crab per day between strings at a significance level of 0.05.
+
+#### summay of pots per string
+In general, the number of pots sampled per string could be increased, however the variability within each string is so high that there are diminishing returns for increasing the number of pots sampled.  It is recommended that the number of pots sampled per string remain at 5 since this appears sufficient enough to look at CPUE at a regional level due to the larger number of strings sampled (n=66).
+
+Additionally, when examining the CV for each string it appears that there is a baseline level of variability (~ a CV of 16 for LEGAL crab) present in each string.  When this baseline level is removed (CV_base_rem) a more realistic view of the variability within strings can be observed.  The average CV (for LEGAL crab) with the baseline removed hovers around 24, which is an acceptable level of variability for this sampling method.  Increasing the number of pots sampled would NOT decrease this variability substantial and therefore is NOT recommended. 
+
+```{r graph,echo=FALSE, eval=TRUE, error=FALSE, warning=FALSE  }
+#ggplot(string_CPUE_legal, aes(x = string, y = CV)) +geom_point()
+#ggplot(string_CPUE_legal, aes(x=string, y = CV_base_rem)) +geom_point()
+```
